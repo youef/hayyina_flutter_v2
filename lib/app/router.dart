@@ -2,23 +2,26 @@ import 'package:flutter/widgets.dart';
 import 'package:go_router/go_router.dart';
 import '../core/supabase/supabase_client.dart';
 import '../features/auth/presentation/auth_page.dart';
+import '../features/auth/presentation/welcome_page.dart';
 import '../features/shell/presentation/shell_page.dart';
 
 final appRouter = GoRouter(
-  initialLocation: '/',
+  initialLocation: '/welcome',
   refreshListenable: GoRouterRefreshStream(
     SupabaseConfig.isConfigured ? SupabaseConfig.client.auth.onAuthStateChange : const Stream.empty(),
   ),
   redirect: (context, state) {
     final loggedIn = SupabaseConfig.isConfigured && SupabaseConfig.client.auth.currentSession != null;
+    final welcomeRoute = state.matchedLocation == '/welcome';
     final authRoute = state.matchedLocation == '/login' || state.matchedLocation == '/register';
-    if (!SupabaseConfig.isConfigured) return state.matchedLocation;
-    if (!loggedIn && !authRoute) return '/login';
-    if (loggedIn && authRoute) return '/';
+    if (!SupabaseConfig.isConfigured) return null;
+    if (!loggedIn && !welcomeRoute && !authRoute) return '/welcome';
+    if (loggedIn && (welcomeRoute || authRoute)) return '/';
     return null;
   },
   routes: [
     GoRoute(path: '/', builder: (context, state) => const ShellPage()),
+    GoRoute(path: '/welcome', builder: (context, state) => const WelcomePage()),
     GoRoute(path: '/login', builder: (context, state) => const AuthPage()),
     GoRoute(path: '/register', builder: (context, state) => const AuthPage(register: true)),
   ],
