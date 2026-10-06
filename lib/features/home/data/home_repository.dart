@@ -71,7 +71,7 @@ class HomeRepository {
       story['viewed'] = viewedIds.contains(story['id'].toString());
     }
     stories.sort((a, b) {
-      final viewedOrder = (a['viewed'] as bool).compareTo(b['viewed'] as bool);
+      final viewedOrder = (a['viewed'] == true ? 0 : 1).compareTo(b['viewed'] == true ? 0 : 1);
       if (viewedOrder != 0) return viewedOrder;
       return (b['created_at'] as String).compareTo(a['created_at'] as String);
     });

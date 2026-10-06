@@ -302,6 +302,9 @@ class _StoryItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final safeAvatarUrl = avatarUrl;
+    final hasAvatar = safeAvatarUrl != null && safeAvatarUrl.isNotEmpty;
+
     return SizedBox(
       width: 78,
       child: Column(
@@ -328,8 +331,8 @@ class _StoryItem extends StatelessWidget {
                 : CircleAvatar(
                     radius: 24,
                     backgroundColor: Colors.white,
-                    backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
-                    child: avatarUrl != null && avatarUrl.isNotEmpty ? null : Text(title.characters.firstOrNull ?? 'م'),
+                    backgroundImage: hasAvatar ? NetworkImage(safeAvatarUrl!) : null,
+                    child: hasAvatar ? null : Text(title.characters.firstOrNull ?? 'م'),
                   ),
           ),
           const SizedBox(height: 8),
