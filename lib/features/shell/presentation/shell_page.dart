@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../community/presentation/community_page.dart';
 import '../../home/presentation/home_page.dart';
+import '../../market/presentation/market_page.dart';
 import '../../profile/presentation/profile_page.dart';
 
 class ShellPage extends StatefulWidget {
@@ -27,20 +28,20 @@ class _ShellPageState extends State<ShellPage> {
   Widget build(BuildContext context) {
     final current = pages[index];
     final bodies = [
-      const HomePage(),
+      HomePage(
+        onOpenCommunity: () => setState(() => index = 1),
+        onOpenMarket: () => setState(() => index = 2),
+      ),
       const CommunityPage(),
-      const _PlaceholderPage(title: 'السوق', icon: LucideIcons.store),
+      const MarketPage(),
       const _PlaceholderPage(title: 'الرسائل', icon: LucideIcons.messageCircle),
       const ProfilePage(),
     ];
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(current.$1, style: const TextStyle(fontWeight: FontWeight.w800)),
-        actions: [
-          IconButton(onPressed: () {}, icon: const Icon(LucideIcons.bell)),
-          const SizedBox(width: 8),
-        ],
+        title: Text(current.$1,
+            style: const TextStyle(fontWeight: FontWeight.w800)),
       ),
       body: bodies[index],
       bottomNavigationBar: NavigationBar(
@@ -68,7 +69,9 @@ class _PlaceholderPage extends StatelessWidget {
           children: [
             Icon(icon, size: 56, color: Theme.of(context).colorScheme.primary),
             const SizedBox(height: 16),
-            Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+            Text(title,
+                style:
+                    const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
             const SizedBox(height: 6),
             const Text('هذه الواجهة قيد البناء في V2'),
           ],

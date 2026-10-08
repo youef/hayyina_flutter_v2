@@ -1,3 +1,4 @@
+import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/supabase/supabase_client.dart';
@@ -25,6 +26,34 @@ class HomeRepository {
       'profile': profile ?? <String, dynamic>{},
       'unread_count': unread.count,
     };
+  }
+
+  Future<List<Map<String, dynamic>>> getNotifications() async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return [];
+    final rows = await _client
+        .from('notifications')
+        .select('id,title,body,type,read_at,created_at')
+        .eq('user_id', userId)
+        .order('created_at', ascending: false)
+        .limit(30);
+    return List<Map<String, dynamic>>.from(rows);
+  }
+
+  Future<void> markNotificationRead(String notificationId) async {
+    await _client.from('notifications').update({
+      'read_at': DateTime.now().toUtc().toIso8601String(),
+    }).eq('id', notificationId);
+  }
+
+  Future<void> markAllNotificationsRead() async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return;
+    await _client
+        .from('notifications')
+        .update({'read_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('user_id', userId)
+        .isFilter('read_at', null);
   }
 
   Future<List<Map<String, dynamic>>> getStories() async {
@@ -71,7 +100,8 @@ class HomeRepository {
       story['viewed'] = viewedIds.contains(story['id'].toString());
     }
     stories.sort((a, b) {
-      final viewedOrder = (a['viewed'] == true ? 0 : 1).compareTo(b['viewed'] == true ? 0 : 1);
+      final viewedOrder =
+          (a['viewed'] == true ? 0 : 1).compareTo(b['viewed'] == true ? 0 : 1);
       if (viewedOrder != 0) return viewedOrder;
       return (b['created_at'] as String).compareTo(a['created_at'] as String);
     });
@@ -86,6 +116,62 @@ class HomeRepository {
       onConflict: 'story_id,viewer_id',
       ignoreDuplicates: true,
     );
+  }
+
+  Future<void> createStory({
+    required String content,
+    required String backgroundColor,
+    XFile? image,
+  }) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) throw StateError('يجب تسجيل الدخول لنشر قصة.');
+
+    final text = content.trim();
+    if (image == null && text.isEmpty) {
+      throw ArgumentError('اكتب نص القصة أو اختر صورة.');
+    }
+
+    String? imageUrl;
+    String? imagePath;
+    if (image != null) {
+      final extension = image.name.contains('.')
+          ? image.name.split('.').last.toLowerCase()
+          : 'jpg';
+      final contentType = switch (extension) {
+        'png' => 'image/png',
+        'webp' => 'image/webp',
+        _ => 'image/jpeg',
+      };
+      imagePath = '$userId/${DateTime.now().millisecondsSinceEpoch}.$extension';
+      await _client.storage.from('stories').uploadBinary(
+            imagePath,
+            await image.readAsBytes(),
+            fileOptions: FileOptions(contentType: contentType, upsert: false),
+          );
+      imageUrl = _client.storage.from('stories').getPublicUrl(imagePath);
+    }
+
+    try {
+      await _client.from('stories').insert({
+        'author_id': userId,
+        'type': image == null ? 'text' : 'image',
+        'content': text.isEmpty ? null : text,
+        'image_url': imageUrl,
+        'bg_color': backgroundColor,
+        'text_color': '#FFFFFF',
+        'expires_at': DateTime.now()
+            .toUtc()
+            .add(const Duration(hours: 24))
+            .toIso8601String(),
+      });
+    } catch (_) {
+      if (imagePath != null) {
+        try {
+          await _client.storage.from('stories').remove([imagePath]);
+        } catch (_) {}
+      }
+      rethrow;
+    }
   }
 
   Future<List<Map<String, dynamic>>> getCommunityQuestions() async {
@@ -176,7 +262,9 @@ class HomeRepository {
           .from('categories')
           .select('id,name')
           .inFilter('id', categoryIds);
-      final names = {for (final row in categories) row['id'].toString(): row['name']};
+      final names = {
+        for (final row in categories) row['id'].toString(): row['name']
+      };
       for (final business in businesses) {
         business['category_name'] = names[business['category_id']?.toString()];
       }
@@ -213,7 +301,8 @@ class HomeRepository {
       question['profile'] = profiles[question['author_id'].toString()];
     }
     questions.sort((a, b) {
-      final answerOrder = (a['answers_count'] as int).compareTo(b['answers_count'] as int);
+      final answerOrder =
+          (a['answers_count'] as int).compareTo(b['answers_count'] as int);
       if (answerOrder != 0) return answerOrder;
       return (b['created_at'] as String).compareTo(a['created_at'] as String);
     });
@@ -258,7 +347,10 @@ class HomeRepository {
         .toList();
     final categories = categoryIds.isEmpty
         ? <Map<String, dynamic>>[]
-        : await _client.from('categories').select('id,name').inFilter('id', categoryIds);
+        : await _client
+            .from('categories')
+            .select('id,name')
+            .inFilter('id', categoryIds);
     final categoryNames = {
       for (final row in categories) row['id'].toString(): row['name'],
     };
@@ -273,20 +365,23 @@ class HomeRepository {
     }
     for (final question in questions) {
       question['profile'] = profiles[question['author_id'].toString()];
-      question['category_name'] = categoryNames[question['category_id']?.toString()];
+      question['category_name'] =
+          categoryNames[question['category_id']?.toString()];
       question['answers_count'] = answerCounts[question['id'].toString()] ?? 0;
     }
     return questions;
   }
 
-  Future<Map<String, Map<String, dynamic>>> _profilesFor(List<String> ids) async {
+  Future<Map<String, Map<String, dynamic>>> _profilesFor(
+      List<String> ids) async {
     if (ids.isEmpty) return {};
     final rows = await _client
         .from('profiles')
         .select('id,display_name,username,avatar_url,is_verified,city,district')
         .inFilter('id', ids);
     return {
-      for (final row in rows) row['id'].toString(): Map<String, dynamic>.from(row),
+      for (final row in rows)
+        row['id'].toString(): Map<String, dynamic>.from(row),
     };
   }
 }

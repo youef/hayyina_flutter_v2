@@ -6,9 +6,15 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../data/home_repository.dart';
+import 'notifications_sheet.dart';
+import 'story_composer_sheet.dart';
+import 'story_viewer.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  const HomePage({super.key, this.onOpenCommunity, this.onOpenMarket});
+
+  final VoidCallback? onOpenCommunity;
+  final VoidCallback? onOpenMarket;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -16,7 +22,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final HomeRepository _repository = HomeRepository();
-  late final Future<_HomeData> _future;
+  late Future<_HomeData> _future;
 
   @override
   void initState() {
@@ -26,7 +32,8 @@ class _HomePageState extends State<HomePage> {
 
   Future<_HomeData> _loadHome() async {
     final profile = await _repository.getHeader();
-    final profileMap = Map<String, dynamic>.from(profile['profile'] as Map<String, dynamic>? ?? const {});
+    final profileMap = Map<String, dynamic>.from(
+        profile['profile'] as Map<String, dynamic>? ?? const {});
     final city = (profileMap['city'] ?? '').toString();
 
     final results = await Future.wait([
@@ -52,6 +59,28 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Future<void> _refreshHome() async {
+    final future = _loadHome();
+    setState(() => _future = future);
+    try {
+      await future;
+    } catch (_) {}
+  }
+
+  Future<void> _addStory() async {
+    if (await showStoryComposer(context) && mounted) await _refreshHome();
+  }
+
+  Future<void> _openNotifications() async {
+    await showNotificationsSheet(context);
+    if (mounted) await _refreshHome();
+  }
+
+  Future<void> _openStory(List<Map<String, dynamic>> stories, int index) async {
+    await showStoryViewer(context, stories: stories, initialIndex: index);
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<_HomeData>(
@@ -71,37 +100,53 @@ class _HomePageState extends State<HomePage> {
 
         final data = snapshot.data ?? _HomeData.empty();
         return RefreshIndicator(
-          onRefresh: () async => setState(() => _future = _loadHome()),
+          onRefresh: _refreshHome,
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [
               _HeaderSection(
                 profile: data.profile,
                 unreadCount: data.unreadCount,
+                onSearch: widget.onOpenMarket,
+                onNotifications: _openNotifications,
               ),
               const SizedBox(height: 18),
-              _StoriesSection(stories: data.stories),
+              const _SectionTitle(
+                  title: 'يوميات الحي', icon: LucideIcons.circlePlay),
+              _StoriesSection(
+                stories: data.stories,
+                onAddStory: _addStory,
+                onOpenStory: (index) => _openStory(data.stories, index),
+              ),
               const SizedBox(height: 18),
-              _QuickActionsSection(),
+              _QuickActionsSection(
+                onCreateStory: _addStory,
+                onOpenCommunity: widget.onOpenCommunity,
+                onOpenMarket: widget.onOpenMarket,
+              ),
               const SizedBox(height: 18),
-              _CreateSection(),
-              const SizedBox(height: 18),
-              _SectionTitle(title: '🏘️ مجتمع الحي'),
+              const _SectionTitle(title: 'مجتمع الحي', icon: LucideIcons.users),
               _QuestionFeedSection(questions: data.communityQuestions),
               const SizedBox(height: 18),
-              _SectionTitle(title: '🤝 طلبات مساعدة قريبة'),
+              const _SectionTitle(
+                  title: 'طلبات مساعدة قريبة', icon: LucideIcons.handHelping),
               _NearbyHelpSection(requests: data.nearbyRequests),
               const SizedBox(height: 18),
-              _SectionTitle(title: '🔧 خدمات قريبة'),
+              const _SectionTitle(
+                  title: 'خدمات قريبة', icon: LucideIcons.wrench),
               _ServicesSection(services: data.services),
               const SizedBox(height: 18),
-              _SectionTitle(title: '🏪 متاجر من حولك'),
+              const _SectionTitle(
+                  title: 'متاجر من حولك', icon: LucideIcons.store),
               _BusinessesSection(businesses: data.businesses),
               const SizedBox(height: 18),
-              _SectionTitle(title: '❓ أسئلة تحتاج إجابة'),
+              const _SectionTitle(
+                  title: 'أسئلة تحتاج إجابة',
+                  icon: LucideIcons.messageCircleQuestion),
               _QuestionsSection(questions: data.questions),
               const SizedBox(height: 18),
-              _SectionTitle(title: '🎉 فعاليات قريبة'),
+              const _SectionTitle(
+                  title: 'فعاليات قريبة', icon: LucideIcons.calendarDays),
               _EventsSection(events: data.events),
             ],
           ),
@@ -125,16 +170,16 @@ class _HomeData {
   });
 
   factory _HomeData.empty() => const _HomeData(
-    profile: {},
-    unreadCount: 0,
-    stories: [],
-    communityQuestions: [],
-    nearbyRequests: [],
-    services: [],
-    businesses: [],
-    questions: [],
-    events: [],
-  );
+        profile: {},
+        unreadCount: 0,
+        stories: [],
+        communityQuestions: [],
+        nearbyRequests: [],
+        services: [],
+        businesses: [],
+        questions: [],
+        events: [],
+      );
 
   final Map<String, dynamic> profile;
   final int unreadCount;
@@ -148,10 +193,17 @@ class _HomeData {
 }
 
 class _HeaderSection extends StatelessWidget {
-  const _HeaderSection({required this.profile, required this.unreadCount});
+  const _HeaderSection({
+    required this.profile,
+    required this.unreadCount,
+    required this.onSearch,
+    required this.onNotifications,
+  });
 
   final Map<String, dynamic> profile;
   final int unreadCount;
+  final VoidCallback? onSearch;
+  final VoidCallback onNotifications;
 
   @override
   Widget build(BuildContext context) {
@@ -178,36 +230,58 @@ class _HeaderSection extends StatelessWidget {
           CircleAvatar(
             radius: 28,
             backgroundColor: Colors.white,
-            backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
-            child: avatarUrl == null || avatarUrl.isEmpty ? Text(name.isNotEmpty ? name.substring(0, math.min(name.length, 1)) : 'م') : null,
+            backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                ? NetworkImage(avatarUrl)
+                : null,
+            child: avatarUrl == null || avatarUrl.isEmpty
+                ? Text(name.isNotEmpty
+                    ? name.substring(0, math.min(name.length, 1))
+                    : 'م')
+                : null,
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('هلا بك 👋', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                Text('هلا بك 👋',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 4),
                 Text(
-                  [city, district].where((value) => value.isNotEmpty).join(' / '),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.muted),
+                  [city, district]
+                      .where((value) => value.isNotEmpty)
+                      .join(' / '),
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(color: AppColors.muted),
                 ),
                 const SizedBox(height: 6),
-                Text(name, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                Text(name,
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(fontWeight: FontWeight.w800)),
               ],
             ),
           ),
           Row(
             children: [
-              IconButton(
-                onPressed: () {},
-                icon: const Icon(LucideIcons.search),
-              ),
+              if (onSearch != null)
+                IconButton(
+                  tooltip: 'البحث في السوق',
+                  onPressed: onSearch,
+                  icon: const Icon(LucideIcons.search),
+                ),
               Stack(
                 clipBehavior: Clip.none,
                 children: [
                   IconButton(
-                    onPressed: () {},
+                    tooltip: 'التنبيهات',
+                    onPressed: onNotifications,
                     icon: const Icon(LucideIcons.bell),
                   ),
                   if (unreadCount > 0)
@@ -225,7 +299,10 @@ class _HeaderSection extends StatelessWidget {
                         alignment: Alignment.center,
                         child: Text(
                           unreadCount > 9 ? '9+' : unreadCount.toString(),
-                          style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700),
                         ),
                       ),
                     ),
@@ -240,9 +317,15 @@ class _HeaderSection extends StatelessWidget {
 }
 
 class _StoriesSection extends StatelessWidget {
-  const _StoriesSection({required this.stories});
+  const _StoriesSection({
+    required this.stories,
+    required this.onAddStory,
+    required this.onOpenStory,
+  });
 
   final List<Map<String, dynamic>> stories;
+  final VoidCallback onAddStory;
+  final ValueChanged<int> onOpenStory;
 
   @override
   Widget build(BuildContext context) {
@@ -256,16 +339,18 @@ class _StoriesSection extends StatelessWidget {
         itemBuilder: (context, index) {
           if (index == 0) {
             return _StoryItem(
-              title: 'قصتك',
+              title: 'أضف قصة',
               icon: LucideIcons.plus,
               isAdd: true,
               avatarUrl: null,
               bgColor: AppColors.primary.withOpacity(0.12),
+              onTap: onAddStory,
             );
           }
 
           final item = items[index - 1];
-          final profile = Map<String, dynamic>.from(item['profile'] as Map? ?? const {});
+          final profile =
+              Map<String, dynamic>.from(item['profile'] as Map? ?? const {});
           final displayName = (profile['display_name'] ?? 'مستخدم').toString();
           final avatarUrl = profile['avatar_url']?.toString();
           final viewed = item['viewed'] == true;
@@ -274,8 +359,10 @@ class _StoriesSection extends StatelessWidget {
             title: displayName,
             icon: null,
             avatarUrl: avatarUrl,
-            bgColor: viewed ? Colors.white : AppColors.primary.withOpacity(0.10),
+            bgColor:
+                viewed ? Colors.white : AppColors.primary.withOpacity(0.10),
             borderColor: viewed ? AppColors.border : AppColors.primary,
+            onTap: () => onOpenStory(index - 1),
           );
         },
       ),
@@ -289,6 +376,7 @@ class _StoryItem extends StatelessWidget {
     required this.icon,
     required this.avatarUrl,
     required this.bgColor,
+    required this.onTap,
     this.isAdd = false,
     this.borderColor,
   });
@@ -297,6 +385,7 @@ class _StoryItem extends StatelessWidget {
   final IconData? icon;
   final String? avatarUrl;
   final Color bgColor;
+  final VoidCallback onTap;
   final bool isAdd;
   final Color? borderColor;
 
@@ -307,131 +396,132 @@ class _StoryItem extends StatelessWidget {
 
     return SizedBox(
       width: 78,
-      child: Column(
-        children: [
-          Container(
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(
-              gradient: isAdd
-                  ? null
-                  : LinearGradient(
-                      colors: [
-                        bgColor,
-                        (borderColor ?? AppColors.primary).withOpacity(0.25),
-                      ],
-                    ),
-              color: isAdd ? AppColors.primary.withOpacity(0.12) : null,
-              border: Border.all(color: borderColor ?? AppColors.border, width: isAdd ? 1 : 2),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            alignment: Alignment.center,
-            child: isAdd
-                ? Icon(icon, color: AppColors.primary)
-                : CircleAvatar(
-                    radius: 24,
-                    backgroundColor: Colors.white,
-                    backgroundImage: hasAvatar ? NetworkImage(safeAvatarUrl!) : null,
-                    child: hasAvatar ? null : Text(title.characters.firstOrNull ?? 'م'),
-                  ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
+          child: Column(
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  gradient: isAdd
+                      ? null
+                      : LinearGradient(
+                          colors: [
+                            bgColor,
+                            (borderColor ?? AppColors.primary)
+                                .withOpacity(0.25),
+                          ],
+                        ),
+                  color: isAdd ? AppColors.primary.withOpacity(0.12) : null,
+                  border: Border.all(
+                      color: borderColor ?? AppColors.border,
+                      width: isAdd ? 1 : 2),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                alignment: Alignment.center,
+                child: isAdd
+                    ? Icon(icon, color: AppColors.primary)
+                    : CircleAvatar(
+                        radius: 24,
+                        backgroundColor: Colors.white,
+                        backgroundImage:
+                            hasAvatar ? NetworkImage(safeAvatarUrl!) : null,
+                        child: hasAvatar
+                            ? null
+                            : Text(title.characters.firstOrNull ?? 'م'),
+                      ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style:
+                    const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-          ),
-        ],
+        ),
       ),
     );
   }
 }
 
 class _QuickActionsSection extends StatelessWidget {
-  const _QuickActionsSection();
+  const _QuickActionsSection({
+    required this.onCreateStory,
+    required this.onOpenCommunity,
+    required this.onOpenMarket,
+  });
 
-  static const actions = [
-    ('❓', 'اسأل'),
-    ('🔧', 'خدمة'),
-    ('🤝', 'مساعدة'),
-    ('🛍️', 'السوق'),
-    ('📍', 'حولك'),
-    ('🎉', 'فعاليات'),
-  ];
+  final VoidCallback onCreateStory;
+  final VoidCallback? onOpenCommunity;
+  final VoidCallback? onOpenMarket;
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
+    return Row(
       children: [
-        for (final action in actions)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(action.$1, style: const TextStyle(fontSize: 18)),
-                const SizedBox(width: 8),
-                Text(action.$2, style: const TextStyle(fontWeight: FontWeight.w700)),
-              ],
-            ),
+        Expanded(
+          child: _HomeAction(
+            icon: LucideIcons.circlePlus,
+            label: 'أضف قصة',
+            onTap: onCreateStory,
           ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _HomeAction(
+            icon: LucideIcons.users,
+            label: 'مجتمع الحي',
+            onTap: onOpenCommunity,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _HomeAction(
+            icon: LucideIcons.store,
+            label: 'استكشف السوق',
+            onTap: onOpenMarket,
+          ),
+        ),
       ],
     );
   }
 }
 
-class _CreateSection extends StatelessWidget {
-  const _CreateSection();
+class _HomeAction extends StatelessWidget {
+  const _HomeAction({required this.icon, required this.label, this.onTap});
 
-  static const createOptions = [
-    ('❓', 'اسأل'),
-    ('🤝', 'أحتاج مساعدة'),
-    ('🔧', 'أقدم خدمة'),
-    ('📸', 'أضف قصة'),
-  ];
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('وش تحتاج؟ 👋', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                for (final option in createOptions)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(14),
-                      color: AppColors.primary.withOpacity(0.08),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(option.$1, style: const TextStyle(fontSize: 18)),
-                        const SizedBox(width: 8),
-                        Text(option.$2, style: const TextStyle(fontWeight: FontWeight.w700)),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ],
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 14),
+          child: Column(
+            children: [
+              Icon(icon, color: AppColors.primary),
+              const SizedBox(height: 8),
+              Text(label,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 12)),
+            ],
+          ),
         ),
       ),
     );
@@ -439,15 +529,24 @@ class _CreateSection extends StatelessWidget {
 }
 
 class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({required this.title});
+  const _SectionTitle({required this.title, required this.icon});
 
   final String title;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+      child: Row(
+        children: [
+          Icon(icon, size: 19, color: AppColors.primary),
+          const SizedBox(width: 8),
+          Text(title,
+              style:
+                  const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+        ],
+      ),
     );
   }
 }
@@ -460,12 +559,13 @@ class _QuestionFeedSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (questions.isEmpty) {
-      return const _EmptyState(message: 'لا توجد أسئلة في مجتمع الحي сейчас.');
+      return const _EmptyState(message: 'لا توجد أسئلة في مجتمع الحي الآن.');
     }
 
     return Column(
       children: questions.take(3).map((question) {
-        final profile = Map<String, dynamic>.from(question['profile'] as Map? ?? const {});
+        final profile =
+            Map<String, dynamic>.from(question['profile'] as Map? ?? const {});
         final title = (question['title'] ?? 'سؤال').toString();
         final district = (question['district'] ?? '').toString();
         final createdAt = question['created_at']?.toString() ?? '';
@@ -485,7 +585,8 @@ class _QuestionFeedSection extends StatelessWidget {
                     CircleAvatar(
                       radius: 18,
                       backgroundImage: _avatarImage(profile['avatar_url']),
-                      child: _avatarChild(profile['avatar_url'], profile['display_name']),
+                      child: _avatarChild(
+                          profile['avatar_url'], profile['display_name']),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -494,43 +595,60 @@ class _QuestionFeedSection extends StatelessWidget {
                         children: [
                           Row(
                             children: [
-                              Text((profile['display_name'] ?? 'مستخدم').toString(), style: const TextStyle(fontWeight: FontWeight.w800)),
+                              Text(
+                                  (profile['display_name'] ?? 'مستخدم')
+                                      .toString(),
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w800)),
                               if (profile['is_verified'] == true) ...[
                                 const SizedBox(width: 4),
-                                const Icon(LucideIcons.badgeCheck, size: 16, color: AppColors.primary),
+                                const Icon(LucideIcons.badgeCheck,
+                                    size: 16, color: AppColors.primary),
                               ],
                             ],
                           ),
                           Text(
                             '${_timeAgo(createdAt)} • ${district.isNotEmpty ? 'حي $district' : 'حي قريب'}',
-                            style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                            style: const TextStyle(
+                                fontSize: 12, color: AppColors.muted),
                           ),
                         ],
                       ),
                     ),
                     if (isEmergency)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: AppColors.danger.withOpacity(0.08),
                           borderRadius: BorderRadius.circular(999),
                         ),
-                        child: const Text('طارئ', style: TextStyle(fontSize: 10, color: AppColors.danger, fontWeight: FontWeight.w800)),
+                        child: const Text('طارئ',
+                            style: TextStyle(
+                                fontSize: 10,
+                                color: AppColors.danger,
+                                fontWeight: FontWeight.w800)),
                       ),
                   ],
                 ),
                 const SizedBox(height: 12),
-                Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                Text(title,
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    const Icon(LucideIcons.messageCircle, size: 16, color: AppColors.muted),
+                    const Icon(LucideIcons.messageCircle,
+                        size: 16, color: AppColors.muted),
                     const SizedBox(width: 6),
-                    Text('$answersCount إجابات', style: const TextStyle(color: AppColors.muted)),
+                    Text('$answersCount إجابات',
+                        style: const TextStyle(color: AppColors.muted)),
                     const SizedBox(width: 18),
-                    const Icon(LucideIcons.eye, size: 16, color: AppColors.muted),
+                    const Icon(LucideIcons.eye,
+                        size: 16, color: AppColors.muted),
                     const SizedBox(width: 6),
-                    Text(views.toString(), style: const TextStyle(color: AppColors.muted)),
+                    Text(views.toString(),
+                        style: const TextStyle(color: AppColors.muted)),
                   ],
                 ),
               ],
@@ -550,12 +668,14 @@ class _NearbyHelpSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (requests.isEmpty) {
-      return const _EmptyState(message: 'لا توجد طلبات مساعدة قريبة في المدينة الحالية.');
+      return const _EmptyState(
+          message: 'لا توجد طلبات مساعدة قريبة في المدينة الحالية.');
     }
 
     return Column(
       children: requests.take(3).map((request) {
-        final profile = Map<String, dynamic>.from(request['profile'] as Map? ?? const {});
+        final profile =
+            Map<String, dynamic>.from(request['profile'] as Map? ?? const {});
         final title = (request['title'] ?? 'يطلب مساعدة').toString();
         final description = (request['description'] ?? '').toString();
         final district = (request['district'] ?? '').toString();
@@ -573,33 +693,48 @@ class _NearbyHelpSection extends StatelessWidget {
                     CircleAvatar(
                       radius: 18,
                       backgroundImage: _avatarImage(profile['avatar_url']),
-                      child: _avatarChild(profile['avatar_url'], profile['display_name']),
+                      child: _avatarChild(
+                          profile['avatar_url'], profile['display_name']),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text((profile['display_name'] ?? 'مستخدم').toString(), style: const TextStyle(fontWeight: FontWeight.w800)),
+                      child: Text(
+                          (profile['display_name'] ?? 'مستخدم').toString(),
+                          style: const TextStyle(fontWeight: FontWeight.w800)),
                     ),
                     if (urgent)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: AppColors.warning.withOpacity(0.12),
                           borderRadius: BorderRadius.circular(999),
                         ),
-                        child: const Text('عاجل', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.warning)),
+                        child: const Text('عاجل',
+                            style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.warning)),
                       ),
                   ],
                 ),
                 const SizedBox(height: 12),
-                Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                Text(title,
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 6),
-                Text(description, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.muted)),
+                Text(description,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: AppColors.muted)),
                 const SizedBox(height: 10),
                 Row(
                   children: [
-                    const Icon(LucideIcons.mapPin, size: 16, color: AppColors.muted),
+                    const Icon(LucideIcons.mapPin,
+                        size: 16, color: AppColors.muted),
                     const SizedBox(width: 6),
-                    Text(district.isNotEmpty ? 'حي $district' : 'موقع قريب', style: const TextStyle(color: AppColors.muted)),
+                    Text(district.isNotEmpty ? 'حي $district' : 'موقع قريب',
+                        style: const TextStyle(color: AppColors.muted)),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -643,7 +778,8 @@ class _ServicesSection extends StatelessWidget {
           final name = (service['name'] ?? 'خدمة').toString();
           final district = (service['district'] ?? '').toString();
           final available = service['available_now'] == true;
-          final provider = Map<String, dynamic>.from(service['profile'] as Map? ?? const {});
+          final provider =
+              Map<String, dynamic>.from(service['profile'] as Map? ?? const {});
 
           return Container(
             width: 180,
@@ -668,7 +804,8 @@ class _ServicesSection extends StatelessWidget {
                             height: 90,
                             color: AppColors.primary.withOpacity(0.12),
                             alignment: Alignment.center,
-                            child: const Icon(LucideIcons.wrench, color: AppColors.primary),
+                            child: const Icon(LucideIcons.wrench,
+                                color: AppColors.primary),
                           ),
                         )
                       : Container(
@@ -679,25 +816,41 @@ class _ServicesSection extends StatelessWidget {
                             color: AppColors.primary.withOpacity(0.12),
                             borderRadius: BorderRadius.circular(14),
                           ),
-                          child: const Icon(LucideIcons.wrench, color: AppColors.primary),
+                          child: const Icon(LucideIcons.wrench,
+                              color: AppColors.primary),
                         ),
                 ),
                 const SizedBox(height: 10),
-                Text(name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800), maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text(name,
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w800),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    const Icon(LucideIcons.star, size: 14, color: AppColors.warning),
+                    const Icon(LucideIcons.star,
+                        size: 14, color: AppColors.warning),
                     const SizedBox(width: 4),
-                    Text((provider['is_verified'] == true ? '4.9' : '4.7'), style: const TextStyle(fontWeight: FontWeight.w700)),
+                    Text((provider['is_verified'] == true ? '4.9' : '4.7'),
+                        style: const TextStyle(fontWeight: FontWeight.w700)),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Icon(available ? LucideIcons.circleCheckBig : LucideIcons.clock3, size: 14, color: available ? AppColors.success : AppColors.muted),
+                    Icon(
+                        available
+                            ? LucideIcons.circleCheckBig
+                            : LucideIcons.clock3,
+                        size: 14,
+                        color: available ? AppColors.success : AppColors.muted),
                     const SizedBox(width: 6),
-                    Text(available ? 'متاح الآن' : 'حاليًا غير متاح', style: TextStyle(color: available ? AppColors.success : AppColors.muted, fontWeight: FontWeight.w700)),
+                    Text(available ? 'متاح الآن' : 'حاليًا غير متاح',
+                        style: TextStyle(
+                            color:
+                                available ? AppColors.success : AppColors.muted,
+                            fontWeight: FontWeight.w700)),
                   ],
                 ),
               ],
@@ -741,33 +894,54 @@ class _BusinessesSection extends StatelessWidget {
                           width: 42,
                           height: 42,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(width: 42, height: 42, color: AppColors.primary.withOpacity(0.1), child: const Icon(LucideIcons.store, size: 18, color: AppColors.primary)),
+                          errorBuilder: (_, __, ___) => Container(
+                              width: 42,
+                              height: 42,
+                              color: AppColors.primary.withOpacity(0.1),
+                              child: const Icon(LucideIcons.store,
+                                  size: 18, color: AppColors.primary)),
                         )
-                      : Container(width: 42, height: 42, color: AppColors.primary.withOpacity(0.1), child: const Icon(LucideIcons.store, size: 18, color: AppColors.primary)),
+                      : Container(
+                          width: 42,
+                          height: 42,
+                          color: AppColors.primary.withOpacity(0.1),
+                          child: const Icon(LucideIcons.store,
+                              size: 18, color: AppColors.primary)),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
+                      Text(name,
+                          style: const TextStyle(fontWeight: FontWeight.w800)),
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          const Icon(LucideIcons.star, size: 14, color: AppColors.warning),
+                          const Icon(LucideIcons.star,
+                              size: 14, color: AppColors.warning),
                           const SizedBox(width: 4),
-                          const Text('4.8', style: TextStyle(fontWeight: FontWeight.w700)),
+                          const Text('4.8',
+                              style: TextStyle(fontWeight: FontWeight.w700)),
                         ],
                       ),
                       const SizedBox(height: 4),
-                      Text(category.isNotEmpty ? '$category • حي $district' : 'حي $district', style: const TextStyle(color: AppColors.muted, fontSize: 12)),
+                      Text(
+                          category.isNotEmpty
+                              ? '$category • حي $district'
+                              : 'حي $district',
+                          style: const TextStyle(
+                              color: AppColors.muted, fontSize: 12)),
                     ],
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: open ? AppColors.success.withOpacity(0.12) : AppColors.muted.withOpacity(0.12),
+                    color: open
+                        ? AppColors.success.withOpacity(0.12)
+                        : AppColors.muted.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
@@ -811,13 +985,16 @@ class _QuestionsSection extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                child: Text(title,
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
               ),
               const SizedBox(width: 12),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: urgent ? AppColors.warning.withOpacity(0.12) : AppColors.primary.withOpacity(0.08),
+                  color: urgent
+                      ? AppColors.warning.withOpacity(0.12)
+                      : AppColors.primary.withOpacity(0.08),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
@@ -845,7 +1022,8 @@ class _EventsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (events.isEmpty) {
-      return const _EmptyState(message: 'لا توجد فعاليات قريبة في المدينة الحالية.');
+      return const _EmptyState(
+          message: 'لا توجد فعاليات قريبة في المدينة الحالية.');
     }
 
     return Column(
@@ -863,12 +1041,15 @@ class _EventsSection extends StatelessWidget {
             children: [
               if (coverUrl != null && coverUrl.isNotEmpty)
                 ClipRRect(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(16)),
                   child: Image.network(
                     coverUrl,
                     height: 150,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(height: 150, color: AppColors.primary.withOpacity(0.12)),
+                    errorBuilder: (_, __, ___) => Container(
+                        height: 150,
+                        color: AppColors.primary.withOpacity(0.12)),
                   ),
                 ),
               Padding(
@@ -876,26 +1057,37 @@ class _EventsSection extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                    Text(title,
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w800)),
                     const SizedBox(height: 8),
                     if (startsAt != null && startsAt.isNotEmpty)
                       Row(
                         children: [
-                          const Icon(LucideIcons.calendarDays, size: 16, color: AppColors.muted),
+                          const Icon(LucideIcons.calendarDays,
+                              size: 16, color: AppColors.muted),
                           const SizedBox(width: 6),
-                          Text(_formatDate(startsAt), style: const TextStyle(color: AppColors.muted)),
+                          Text(_formatDate(startsAt),
+                              style: const TextStyle(color: AppColors.muted)),
                         ],
                       ),
                     const SizedBox(height: 6),
                     Row(
                       children: [
-                        const Icon(LucideIcons.mapPin, size: 16, color: AppColors.muted),
+                        const Icon(LucideIcons.mapPin,
+                            size: 16, color: AppColors.muted),
                         const SizedBox(width: 6),
-                        Expanded(child: Text(location, style: const TextStyle(color: AppColors.muted))),
+                        Expanded(
+                            child: Text(location,
+                                style:
+                                    const TextStyle(color: AppColors.muted))),
                       ],
                     ),
                     const SizedBox(height: 8),
-                    Text(description, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.muted)),
+                    Text(description,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: AppColors.muted)),
                   ],
                 ),
               ),
@@ -941,9 +1133,12 @@ class _ErrorState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(LucideIcons.alertCircle, size: 44, color: AppColors.danger),
+            const Icon(LucideIcons.alertCircle,
+                size: 44, color: AppColors.danger),
             const SizedBox(height: 12),
-            Text(message, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            Text(message,
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
             const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: onRetry,
